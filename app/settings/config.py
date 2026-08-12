@@ -3,6 +3,10 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    service: str = Field(default="home-discord-bot")
+    tz: str = Field(default="Asia/Tokyo")
+    loglevel: str = Field(default="INFO")
+
     discord_token: str = Field(default="token")
 
     redis_host: str = Field(default="redis-service")

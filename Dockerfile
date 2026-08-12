@@ -1,45 +1,76 @@
-ARG PYTHON_VERSION=3.13.12
+# ==========================================
+# グローバル設定
+# ==========================================
+# dhi.io は Docker Hardened Images 専用レジストリ。pull には
+# `docker login dhi.io`(Docker Hubの認証情報)が必要。
+ARG PYTHON_DEV_IMAGE=dhi.io/python:3-debian-dev
+ARG PYTHON_PRD_IMAGE=dhi.io/python:3
+ARG POETRY_VERSION=2.4.1
 
-FROM python:${PYTHON_VERSION}-slim-bookworm AS base
-ENV PYTHONDONTWRITEBYTECODE=1
+
+# ==========================================
+# ベースイメージ(依存関係のビルド用 = devバリアント)
+# ==========================================
+FROM ${PYTHON_DEV_IMAGE} AS base
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    POETRY_INSTALLER_MAX_WORKERS=10 \
+    POETRY_VIRTUALENVS_CREATE=true \
+    POETRY_VIRTUALENVS_IN_PROJECT=true
 WORKDIR /usr/src/app
-ENV PATH=/root/.local/bin:$PATH
 
-RUN --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    apt-get update && apt-get -y dist-upgrade
 
-# 依存解決 (本番用: 通常依存 only)
-FROM base AS prod-deps
-COPY --from=goegoe0212/poetry-image:latest /root/.local /root/.local
-RUN poetry config virtualenvs.create false
+# ==========================================
+# 依存関係のビルド(本番用: 通常依存のみ)
+# ==========================================
+# poetry自体はここ(dependencies/dev-dependencies)にだけ入る。dev/prdへ
+# 引き継ぐのは`poetry install`が作る.venv(プロジェクト内仮想環境)のみ
+# (下のdev/prdステージのCOPY --fromを参照)。poetry自身やそのビルド時限りの
+# 依存が本番イメージに紛れ込むのを防ぐための構成。
+FROM base AS dependencies
+ARG POETRY_VERSION
 
-COPY ./app/pyproject.toml ./app/poetry.lock /usr/src/app/
-RUN poetry install --without dev
-
-# 開発用ステージ
-FROM base AS develop
-COPY --from=goegoe0212/poetry-image:latest /root/.local /root/.local
-RUN poetry config virtualenvs.create false
-
-RUN --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
-    git
+RUN pip install --upgrade --no-cache-dir pip && \
+    pip install --no-cache-dir poetry=="${POETRY_VERSION}" && \
+    poetry config virtualenvs.options.no-pip true
 
 COPY ./app/pyproject.toml ./app/poetry.lock /usr/src/app/
-RUN poetry install
+RUN poetry install --without dev --no-root && \
+    poetry cache clear pypi --all
 
+
+# ==========================================
+# 依存関係のビルド(devグループを含む完全版)
+# ==========================================
+FROM dependencies AS dev-dependencies
+
+RUN poetry install --no-root && \
+    poetry cache clear pypi --all
+
+
+# ==========================================
+# 開発用イメージ (dev)
+# ==========================================
+FROM base AS dev
+ENV VIRTUAL_ENV=/usr/src/app/.venv \
+    PATH=/usr/src/app/.venv/bin:$PATH
+
+COPY --from=dev-dependencies /usr/src/app/.venv /usr/src/app/.venv
 COPY ./ /usr/src/
 
 
-# 本番用ステージ (dev依存なし)
-FROM base AS production
+# ==========================================
+# 本番用イメージ (prd)
+# ==========================================
+# devバリアントではなく、最小構成のprdバリアントから作る。
+FROM ${PYTHON_PRD_IMAGE} AS prd
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    VIRTUAL_ENV=/usr/src/app/.venv \
+    PATH=/usr/src/app/.venv/bin:$PATH
 WORKDIR /usr/src/app
 
-COPY --from=prod-deps /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
-COPY --from=prod-deps /usr/local/bin /usr/local/bin
-
+COPY --from=dependencies /usr/src/app/.venv /usr/src/app/.venv
 COPY ./app /usr/src/app
 
 CMD ["python", "main.py"]

@@ -1,11 +1,9 @@
-import logging
-
 import redis
 
+from core.log_modules import log_application
 from settings.config import settings
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
+logger = log_application(__name__)
 
 
 class RedisConnector:

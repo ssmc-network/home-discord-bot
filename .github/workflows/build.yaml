@@ -53,12 +53,19 @@ jobs:
           username: ssmcnetwork
           password: ${{ steps.docker_oidc.outputs.token }}
 
+      - name: Login to Docker Hardened Images registry
+        uses: docker/login-action@v3
+        with:
+          registry: dhi.io
+          username: ssmcnetwork
+          password: ${{ steps.docker_oidc.outputs.token }}
+
       - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          target: production
+          target: prd
           push: true
           tags: |
             ssmcnetwork/home-discord-bot:latest
