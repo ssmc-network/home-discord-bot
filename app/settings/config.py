@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     redis_port: int = Field(default=6379)
     redis_max_connections: int = Field(default=10)
     discord_channel_id: int = Field(default=123456789)
+    poll_interval_seconds: float = Field(default=5)
 
 
 settings = Settings()

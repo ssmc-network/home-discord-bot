@@ -3,7 +3,7 @@ import json
 from typing import Any
 
 import discord
-from redis import Redis
+from redis import Redis, RedisError
 
 from core.log_modules import log_application
 from modules.redis_module import RedisConnector
@@ -25,7 +25,7 @@ async def fetch_statuses(conn: Redis) -> dict:
     """Redisから全タスクの状態を取得"""
     try:
         return conn.hgetall(REDIS_STATUS_KEY)  # type: ignore[return-value]
-    except Exception:
+    except RedisError:
         logger.exception("Redisから状態取得失敗")
         return {}
 
@@ -34,13 +34,13 @@ def parse_status(status_json: str, task_id: str) -> dict | None:
     """JSONデコード&エラーハンドリング"""
     try:
         result = json.loads(status_json)
-    except Exception:
+    except json.JSONDecodeError:
         logger.exception("タスク%sのJSONデコード失敗", task_id)
         return None
     return result if isinstance(result, dict) else None
 
 
-def generate_message(status: str, title: set, task_id: str, error: str | None = None) -> str:
+def generate_message(status: str, title: str, task_id: str, error: str | None = None) -> str:
     """状態ごとの通知メッセージ生成"""
     if status == "processing":
         return f"【ダウンロード開始】\nタイトル: {title}\nタスクID: `{task_id}`"
@@ -55,7 +55,7 @@ async def notify_discord(channel: discord.abc.Messageable, msg: str) -> None:
     """Discord通知"""
     try:
         await channel.send(msg)
-    except Exception:
+    except discord.DiscordException:
         logger.exception("Discord通知失敗")
 
 
@@ -65,7 +65,7 @@ def cleanup_task(conn: Redis, task_id: str) -> None:
         conn.hdel(REDIS_STATUS_KEY, task_id)
         previous_status.pop(task_id, None)
         logger.info("タスク %s をRedisから削除しました", task_id)
-    except Exception:
+    except RedisError:
         logger.exception("タスク %s の削除失敗", task_id)
 
 
@@ -74,12 +74,12 @@ async def monitor_redis() -> None:
     conn = redis_connector.get_connection()
     channel = client.get_channel(settings.discord_channel_id)
 
-    if not isinstance(channel, discord.abc.Messageable):
-        logger.warning("sendできないチャンネル型: %s", type(channel))
+    if channel is None:
+        logger.error("Discordチャンネルが見つかりません。IDを確認してください。")
         return
 
-    if not channel:
-        logger.error("Discordチャンネルが見つかりません。IDを確認してください。")
+    if not isinstance(channel, discord.abc.Messageable):
+        logger.warning("sendできないチャンネル型: %s", type(channel))
         return
 
     logger.info("Redis監視タスクを開始します。")
@@ -111,8 +111,9 @@ async def monitor_redis() -> None:
             for task_id in set(previous_status) - set(statuses):
                 previous_status.pop(task_id)
         except Exception:
+            # 想定外のエラーで監視ループ自体が止まらないよう、意図的に広く捕捉する。
             logger.exception("Redis監視中にエラー")
-        await asyncio.sleep(5)
+        await asyncio.sleep(settings.poll_interval_seconds)
 
 
 @client.event
@@ -122,7 +123,7 @@ async def on_ready() -> None:
         conn = redis_connector.get_connection()
         pong = conn.ping()
         logger.info("Redis接続確認: %s", pong)
-    except Exception:
+    except RedisError:
         logger.exception("Redis接続失敗")
     client.loop.create_task(monitor_redis())
 
