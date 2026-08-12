@@ -41,7 +41,9 @@
 
 - Docker Hub OIDC connectionを**このリポジトリ専用に1つ**作成する(他リポジトリと使い回さない — ルールセットが1 connectionあたり最大5本までのため、および用途ごとに権限を絞りやすくするため)。connection名はリポジトリ名に合わせて `home-discord-bot` を推奨。
 - ルールを2本設定する: `main` ブランチへのpush用(scope: `Image Push`)、`release/*` 向けPR(Docker Scout用、scope: `Image Pull`のみ)。
-- **Subject claimは名前ベースではなくID埋め込み形式で登録すること(重要・ハマりどころ)**: 素直に `repo:ssmc-network/home-discord-bot:ref:refs/heads/main` のような名前ベースで登録すると、実際にGitHub Actionsが発行するOIDCトークンとマッチせずログインに失敗する。[2026年7月15日のGitHubの仕様変更](https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/)以降、新規作成・リネーム・Transferされたリポジトリではsub claimがOrganization ID・Repository IDを埋め込んだ「immutable形式」になる。このリポジトリのOrganization ID(`ssmc-network`)は `174979090`、Repository ID(`home-discord-bot`)は `1001598293` なので、`main` へのpush用ルールは `repo:ssmc-network@174979090/home-discord-bot@1001598293:ref:refs/heads/main` で登録する。`release/*` 向けPRルールのsub claim形式(`pull_request` イベント用)は実際にワークフローを実行した際のDocker Hub OIDC connectionのFailuresタブで実測して確認すること(eq-dashboardの前例に倣った)。
+- **Subject claimは名前ベースではなくID埋め込み形式で登録すること(重要・ハマりどころ)**: 素直に `repo:ssmc-network/home-discord-bot:ref:refs/heads/main` のような名前ベースで登録すると、実際にGitHub Actionsが発行するOIDCトークンとマッチせずログインに失敗する。[2026年7月15日のGitHubの仕様変更](https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/)以降、新規作成・リネーム・Transferされたリポジトリではsub claimがOrganization ID・Repository IDを埋め込んだ「immutable形式」になる。このリポジトリのOrganization ID(`ssmc-network`)は `174979090`、Repository ID(`home-discord-bot`)は `1001598293` なので、2本のルールは次の値で登録する(eq-dashboardの前例に倣い、`pull_request` イベント用はワイルドカードにしている):
+  - `main` へのpush用(scope: `Image Push`): `repo:ssmc-network@174979090/home-discord-bot@1001598293:ref:refs/heads/main`
+  - `release/*` 向けPR用(scope: `Image Pull`): `repo:ssmc-network@174979090/home-discord-bot@1001598293:*`
 - `DOCKERHUB_OIDC_CONNECTIONID` をリポジトリのActions Variables(Settings → Secrets and variables → Actions → Variables)に登録する。
 - Docker Hub上に `ssmcnetwork/home-discord-bot` リポジトリが無ければ作成しておく。
 
