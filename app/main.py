@@ -1,16 +1,15 @@
 import asyncio
 import json
-import logging
 from typing import Any
 
 import discord
 from redis import Redis
 
+from core.log_modules import log_application
 from modules.redis_module import RedisConnector
 from settings.config import settings
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
+logger = log_application(__name__)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -34,10 +33,11 @@ async def fetch_statuses(conn: Redis) -> dict:
 def parse_status(status_json: str, task_id: str) -> dict | None:
     """JSONデコード&エラーハンドリング"""
     try:
-        return json.loads(status_json)
+        result = json.loads(status_json)
     except Exception:
         logger.exception("タスク%sのJSONデコード失敗", task_id)
         return None
+    return result if isinstance(result, dict) else None
 
 
 def generate_message(status: str, title: set, task_id: str, error: str | None = None) -> str:
