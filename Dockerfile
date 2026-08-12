@@ -1,4 +1,4 @@
-ARG PYTHON_VERSION=3.13.4
+ARG PYTHON_VERSION=3.13.12
 
 FROM python:${PYTHON_VERSION}-slim-bookworm AS base
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -41,4 +41,5 @@ COPY --from=prod-deps /usr/local/lib/python3.13/site-packages /usr/local/lib/pyt
 COPY --from=prod-deps /usr/local/bin /usr/local/bin
 
 COPY ./app /usr/src/app
-# CMD [""]
+
+CMD ["python", "main.py"]
