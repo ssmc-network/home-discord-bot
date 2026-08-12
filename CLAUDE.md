@@ -32,10 +32,12 @@
 
 **CI(`.github/workflows/`)**:
 
-- `test.yaml` — `release/*` へのPRで実行。`develop` ターゲットのDockerイメージをビルドし、その中で `ruff check` と `ruff format` を実行する。
-- `build.yaml` — `release/*` ブランチへの **push** で実行。`production` ターゲットをビルドし、Docker Hubへ `${{ github.repository }}:<release-version>`(バージョン = ブランチ名の `release/` 以降)としてpushし、Trivyでイメージをスキャンする。
+- `test.yaml` — `release/*` へのPRで実行。`develop` ターゲットのDockerイメージをビルドし、その中で `ruff check` と `ruff format` を実行する。Docker Hubへのログインは行わない(pushしないローカルビルドのみのため)。
+- `build.yaml` — `release/*` ブランチへの **push** で実行。`GITHUB_REF` から `release/` 以降をバージョン文字列として抽出(`RELEASE_VERSION`)し、`actions/cache` でBuildxのレイヤーキャッシュを効かせつつ `production` ターゲットをビルド、Docker Hubへ `${{ github.repository }}:${{ env.RELEASE_VERSION }}` のタグでpushする(`latest` タグは付けていない)。push後にTrivyでそのイメージをスキャンする(pushを止めるゲートにはなっておらず、事後スキャン)。
 
 現状このリポジトリでは `release/*` ブランチへのpushで直接ビルド・Docker Hubへのpushまで行っており、`main` へのマージ後に別途ビルド/デプロイするステップは無い。将来`main`マージ後のビルド/デプロイを追加する場合は、上記のブランチモデル(手順3の `release/<バージョン>` → `main` のPRマージ)を起点に設計すること。
+
+**Docker Hub認証**: `build.yaml` の `login docjerhub` ステップで `docker/login-action@v3` を使い、`username: ${{ github.actor }}`(ワークフローをトリガーしたGitHubユーザー) / `password: ${{ secrets.DOCKER_TOKEN }}`(リポジトリSecretに登録された静的なDocker Hub Personal Access Token)でログインしている。OIDC連携ではなく静的PATによる認証である点に注意 — 新しい認証情報が必要な操作を追加する場合も、既存の `secrets.DOCKER_TOKEN` を使い回すこと(このリポジトリにOIDC connectionは設定されていない)。
 
 ## アーキテクチャ
 
