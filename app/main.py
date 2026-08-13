@@ -18,7 +18,10 @@ client = discord.Client(intents=intents)
 redis_connector = RedisConnector()
 
 REDIS_STATUS_KEY = "youtube_download_statuses"
-previous_status: dict = {}
+# タスクごとに最後に通知した状態を保持するハッシュ。プロセスメモリ(前バージョンの
+# previous_status)ではなくRedis側に持たせることで、botの再起動やレプリカの重複起動を
+# 挟んでも同じ状態変化を二重に通知しないようにしている。
+REDIS_NOTIFIED_KEY = "youtube_download_notified_statuses"
 
 
 async def fetch_statuses(conn: Redis) -> dict:
@@ -27,6 +30,15 @@ async def fetch_statuses(conn: Redis) -> dict:
         return conn.hgetall(REDIS_STATUS_KEY)  # type: ignore[return-value]
     except RedisError:
         logger.exception("Redisから状態取得失敗")
+        return {}
+
+
+async def fetch_notified_statuses(conn: Redis) -> dict:
+    """タスクごとに最後に通知済みの状態をRedisから取得"""
+    try:
+        return conn.hgetall(REDIS_NOTIFIED_KEY)  # type: ignore[return-value]
+    except RedisError:
+        logger.exception("通知済み状態の取得失敗")
         return {}
 
 
@@ -60,10 +72,15 @@ async def notify_discord(channel: discord.abc.Messageable, msg: str) -> None:
 
 
 def cleanup_task(conn: Redis, task_id: str) -> None:
-    """完了・エラー時のRedis/メモリからの削除"""
+    """完了・エラー時のRedisからの削除。
+
+    通知済み状態(REDIS_NOTIFIED_KEY)はここでは消さない。消す前にプロセスが落ちると
+    次回起動時に再通知されてしまうため、あえて消さずに残し、後続のポーリングで
+    タスク自体(REDIS_STATUS_KEY側)が消えたことを検知してから片付ける
+    (monitor_redis内の「タスクが消えた場合のクリーンアップ」を参照)。
+    """
     try:
         conn.hdel(REDIS_STATUS_KEY, task_id)
-        previous_status.pop(task_id, None)
         logger.info("タスク %s をRedisから削除しました", task_id)
     except RedisError:
         logger.exception("タスク %s の削除失敗", task_id)
@@ -86,6 +103,7 @@ async def monitor_redis() -> None:
     while not client.is_closed():
         try:
             statuses = await fetch_statuses(conn)
+            notified = await fetch_notified_statuses(conn)
             for task_id, status_json in statuses.items():
                 status_data = parse_status(status_json, task_id)
                 if not status_data:
@@ -94,22 +112,24 @@ async def monitor_redis() -> None:
                 status: Any = status_data.get("status")
                 title: Any = status_data.get("title", "タイトル取得中")
                 error: Any = status_data.get("error")
-                prev = previous_status.get(task_id)
+                prev = notified.get(task_id)
 
                 # ステータス変化時のみ通知
                 if prev != status:
                     msg = generate_message(status, title, task_id, error)
                     await notify_discord(channel, msg)
                     logger.info("タスク %s の状態が %s → %s に変化", task_id, prev, status)
-                    previous_status[task_id] = status
+                    conn.hset(REDIS_NOTIFIED_KEY, task_id, status)
 
-                    # done/errorになったら通知後にRedisから削除
-                    if status in ("done", "error"):
-                        cleanup_task(conn, task_id)
+                # done/errorは通知済みかどうかに関わらず毎回削除を試みる(hdelは冪等なので、
+                # 前回削除に失敗して残っていた場合の再試行にもなる)。
+                if status in ("done", "error"):
+                    cleanup_task(conn, task_id)
 
-            # タスクが消えた場合のクリーンアップ
-            for task_id in set(previous_status) - set(statuses):
-                previous_status.pop(task_id)
+            # タスク自体がRedisから消えた(削除完了 or home-api側の一括クリア等)場合、
+            # 通知済み状態も追従して片付ける。
+            for task_id in set(notified) - set(statuses):
+                conn.hdel(REDIS_NOTIFIED_KEY, task_id)
         except Exception:
             # 想定外のエラーで監視ループ自体が止まらないよう、意図的に広く捕捉する。
             logger.exception("Redis監視中にエラー")
