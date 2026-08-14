@@ -42,13 +42,6 @@ jobs:
           username: ssmcnetwork
           password: ${{ steps.docker_oidc.outputs.token }}
 
-      - name: TEMP - resolve DHI digests
-        run: |
-          echo "dev digest:"
-          docker buildx imagetools inspect dhi.io/python:3-debian-dev | grep -m1 Digest
-          echo "prd digest:"
-          docker buildx imagetools inspect dhi.io/python:3 | grep -m1 Digest
-
       - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
