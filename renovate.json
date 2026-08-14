@@ -1,0 +1,13 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["dockerfile"],
+  "hostRules": [
+    {
+      "matchHost": "dhi.io",
+      "hostType": "docker",
+      "username": "ssmcnetwork",
+      "password": "{{ secrets.DHI_IO_DOCKERHUB_PAT }}"
+    }
+  ]
+}
