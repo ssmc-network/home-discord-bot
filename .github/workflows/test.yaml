@@ -43,7 +43,7 @@ jobs:
           password: ${{ steps.docker_oidc.outputs.token }}
 
       - name: Build Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
@@ -65,7 +65,7 @@ jobs:
           docker run --rm test-image:latest bash -c '[ -d tests ] && pytest || echo "no tests/ directory yet, skipping"'
 
       - name: Build production image for vulnerability scan
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
