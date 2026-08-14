@@ -83,7 +83,7 @@ jobs:
           docker scout cves prd-scan-image:latest --only-severity critical,high --format markdown --output scout-report-pr.md
 
       - name: Upload full Docker Scout report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docker-scout-report-pr-${{ github.event.pull_request.number || github.run_id }}
           path: scout-report-full.md
