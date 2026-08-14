@@ -23,35 +23,38 @@ YouTubeダウンロードタスクの進捗をRedis経由で監視し、状態�
 
 ## ブランチ運用とCI/CD
 
-**ブランチモデル**: `main`(保護ブランチ、直pushは不可) / `release/<バージョン>`(例: `release/1.0.0`) / 開発ブランチ(`feature/...`、`claude/...` など)の3層。
+**ブランチモデル: GitHub Flow**(2026年8月に `main`/`release/<バージョン>`/開発ブランチの3層モデルから移行した)。長期ブランチは `main` のみ(保護ブランチ、直pushは不可、常にデプロイ可能な状態を維持)。開発ブランチ(`feature/...`、`claude/...` など)は `main` から切り、PRで `main` へ直接マージする。
 
-1. リリースするバージョンの `release/<バージョン>` ブランチを先に切る
-2. 開発ブランチを `release/<バージョン>` から切って作業し、完了したらPRで `release/<バージョン>` にマージする(これを繰り返す)
-3. `release/<バージョン>` が完成したらPRで `main` にマージする
+- **releaseブランチという中間ステージは廃止した**。以前は「開発ブランチ → `release/<バージョン>` → `main`」の2段階PRで、Renovateなどの自動化が「今どのreleaseブランチが有効か」を判断する必要があり複雑だった。GitHub Flowでは自動化ツールも含めすべて `main` へ直接PRするだけでよい。
+- **「いつコードがmainに入るか」と「いつバージョンとして公開するか」を分離**している。`main` への継続的なマージ自体はDocker Hubへの公開を伴わない。公開したいタイミングで `vX.Y.Z` 形式のgitタグ(例: `v0.2.0`)を切ると、そのタグをトリガーに `build.yaml` がビルド・pushする(詳細は後述)。
+- 旧 `release/0.1.0`〜`0.1.2` ブランチはすべて `main` へマージ済みで、このモデルでは役目を終えている(削除して問題ないが、履歴として残しても実害はない)。
 
-**Claude CodeはPRのマージを実施しないこと。** PR(開発ブランチ→`release/<バージョン>`、`release/<バージョン>`→`main` のいずれも)の作成はしてよいが、実際のマージ操作はユーザー側が行う。CIの確認・レビュー・不具合修正はこれまで通り主体的に行ってよいが、マージ自体は必ずユーザーの実施に委ねること。
+**Claude CodeはPRのマージを実施しないこと。** PR(開発ブランチ→`main`)の作成はしてよいが、実際のマージ操作はユーザー側が行う。CIの確認・レビュー・不具合修正はこれまで通り主体的に行ってよいが、マージ自体は必ずユーザーの実施に委ねること。同様に、バージョンを公開するためのgitタグ作成もユーザー側の判断で行う(Claude Codeが独断でタグを切らない)。
 
-**CI(`.github/workflows/`)** — eq-dashboardリポジトリと同じ構成に合わせている:
+**CI(`.github/workflows/`)** — eq-dashboardリポジトリの構成をベースに、GitHub Flowへ合わせて対象ブランチ/トリガーを調整している:
 
-- `test.yaml` — `release/*` へのPRで実行(`workflow_dispatch` でも手動実行可)。`dev` ターゲットのDockerイメージをビルドし、その中で `ruff check .` / `ruff format --check .` / (`tests/` があれば)`pytest` を実行する。続けて `prd` ターゲットもpushせずローカルビルドし、Docker Hub OIDCでログインした上で Docker Scout(`docker scout cves`)による脆弱性スキャンを行う。結果はcritical/high のみに絞った上でそのPRへ固定マーカー(`<!-- docker-scout-report -->`)付きコメントとして投稿し、再実行時は新規コメントを増やさず上書きする(medium/lowを含む全件は `docker-scout-report-pr-<PR番号>` という名前のArtifactとして90日保持)。この脆弱性スキャンは意図的に `main` マージ前(release/*へのPR時点)に置いている — マージ後(=Docker Hub公開後)に気づくのではなく、公開前に気づけるようにするため。`workflow_dispatch` での手動実行時は `context.issue.number` が無いためPRコメントはスキップし、結果はジョブの実行サマリー(`core.summary`)にのみ出力する。
-- `build.yaml` — `main` への **push** で実行する(`main` は直pushできない保護ブランチだが、PRをマージボタンでマージするとGitHub自身が `main` へマージコミットをpushする形になるため `push` イベントは発火する)。バージョン番号はマージコミットのメッセージ(GitHubが自動生成する `Merge pull request #N from <owner>/release/<version>`、`github.event.head_commit.message`)から正規表現で抽出する(マージ戦略を「Create a merge commit」以外に変更した場合はこの抽出が壊れる点に注意)。`prd` ターゲットのイメージを `latest` とそのバージョンタグの両方でDocker Hubへpushする。脆弱性スキャンは `test.yaml` 側に一本化しており、ここでは行わない。
+- `test.yaml` — `main` へのPRで実行(`workflow_dispatch` でも手動実行可)。`dev` ターゲットのDockerイメージをビルドし、その中で `ruff check .` / `ruff format --check .` / (`tests/` があれば)`pytest` を実行する。続けて `prd` ターゲットもpushせずローカルビルドし、Docker Hub OIDCでログインした上で Docker Scout(`docker scout cves`)による脆弱性スキャンを行う。結果はcritical/high のみに絞った上でそのPRへ固定マーカー(`<!-- docker-scout-report -->`)付きコメントとして投稿し、再実行時は新規コメントを増やさず上書きする(medium/lowを含む全件は `docker-scout-report-pr-<PR番号>` という名前のArtifactとして90日保持)。この脆弱性スキャンは意図的に `main` マージ前に置いている — マージ後(=Docker Hub公開後)に気づくのではなく、公開前に気づけるようにするため。`workflow_dispatch` での手動実行時は `context.issue.number` が無いためPRコメントはスキップし、結果はジョブの実行サマリー(`core.summary`)にのみ出力する。
+- `build.yaml` — `v*.*.*` 形式のgitタグのpushで実行する(`main` へのpushではない)。バージョン番号は `GITHUB_REF`(`refs/tags/vX.Y.Z`)から `v` プレフィックスを取り除くだけで得る(以前のような、マージコミットメッセージを正規表現でパースする脆い方式はやめた)。`prd` ターゲットのイメージを `latest` とそのバージョンタグの両方でDocker Hubへpushする。脆弱性スキャンは `test.yaml` 側(PRの時点)に一本化しており、ここでは行わない。
 
 **Docker Hub認証(OIDC)**: 静的PAT(`secrets.DOCKER_TOKEN`)は使用しない。`docker/oidc-action@v1`(`with: connection-id: ${{ vars.DOCKERHUB_OIDC_CONNECTIONID }}`)でGitHub ActionsのOIDCトークンをDocker Hubで検証させ、短命アクセストークンを取得してから `docker/login-action` の `password` に渡す2段階構成(`username` はDocker Hub Organization名 `ssmcnetwork` 固定)。`DOCKERHUB_OIDC_CONNECTIONID` はリポジトリのActions **Variable**(Secretではない)。イメージ名は `${{ github.repository }}` に依存させず `ssmcnetwork/home-discord-bot` 固定にしている(GitHub Organization名 `ssmc-network` とDocker Hub Organization名 `ssmcnetwork` は、Docker Hub側がハイフンを許容しないため完全一致しない — Docker Hub側の制約であり是正不可能)。**`docker scout cves` はpush/pull先に関係なくローカルのみのイメージに対してもDocker Hubへのログインを要求する**ため、`test.yaml`(pushしない `prd` イメージのスキャン)にも `build.yaml` と同じOIDCログインステップが入っている。加えて、Dockerfileのベースイメージが `dhi.io`(Docker Hardened Images専用レジストリ、後述)から取得するため、両ワークフローとも `docker.io` へのログインに続けて `dhi.io` へも同じOIDCトークンでログインしている(DHIはDocker Hubアカウントの認証情報をそのまま使う仕様のため、同一トークンで通る — CI実行で動作確認済み)。
 
 **Docker Hub側の設定(このリポジトリではまだ未作成 — Docker Hubの管理画面はこのセッションから操作できないため、ユーザー側での設定が必要)**:
 
 - Docker Hub OIDC connectionを**このリポジトリ専用に1つ**作成する(他リポジトリと使い回さない — ルールセットが1 connectionあたり最大5本までのため、および用途ごとに権限を絞りやすくするため)。connection名はリポジトリ名に合わせて `home-discord-bot` を推奨。
-- ルールを2本設定する: `main` ブランチへのpush用(scope: `Image Push`)、`release/*` 向けPR(Docker Scout用、scope: `Image Pull`のみ)。
-- **Subject claimは名前ベースではなくID埋め込み形式で登録すること(重要・ハマりどころ)**: 素直に `repo:ssmc-network/home-discord-bot:ref:refs/heads/main` のような名前ベースで登録すると、実際にGitHub Actionsが発行するOIDCトークンとマッチせずログインに失敗する。[2026年7月15日のGitHubの仕様変更](https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/)以降、新規作成・リネーム・Transferされたリポジトリではsub claimがOrganization ID・Repository IDを埋め込んだ「immutable形式」になる。このリポジトリのOrganization ID(`ssmc-network`)は `174979090`、Repository ID(`home-discord-bot`)は `1001598293` なので、2本のルールは次の値で登録する(eq-dashboardの前例に倣い、`pull_request` イベント用はワイルドカードにしている):
-  - `main` へのpush用(scope: `Image Push`): `repo:ssmc-network@174979090/home-discord-bot@1001598293:ref:refs/heads/main`
-  - `release/*` 向けPR用(scope: `Image Pull`): `repo:ssmc-network@174979090/home-discord-bot@1001598293:*`
+- ルールを2本設定する: `v*.*.*` タグのpush用(scope: `Image Push`)、`main` 向けPR(Docker Scout用、scope: `Image Pull`のみ)。
+- **Subject claimは名前ベースではなくID埋め込み形式で登録すること(重要・ハマりどころ)**: 素直に `repo:ssmc-network/home-discord-bot:ref:refs/tags/v1.0.0` のような名前ベースで登録すると、実際にGitHub Actionsが発行するOIDCトークンとマッチせずログインに失敗する。[2026年7月15日のGitHubの仕様変更](https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/)以降、新規作成・リネーム・Transferされたリポジトリではsub claimがOrganization ID・Repository IDを埋め込んだ「immutable形式」になる。このリポジトリのOrganization ID(`ssmc-network`)は `174979090`、Repository ID(`home-discord-bot`)は `1001598293` なので、2本のルールは次の値で登録する(eq-dashboardの前例に倣い、`pull_request` イベント用はワイルドカードにしている):
+  - `v*.*.*` タグのpush用(scope: `Image Push`): `repo:ssmc-network@174979090/home-discord-bot@1001598293:ref:refs/tags/*`(タグ名の部分までワイルドカードで細かく絞れるかは未検証。絞れる場合は `refs/tags/v*` の方が安全)
+  - `main` 向けPR用(scope: `Image Pull`): `repo:ssmc-network@174979090/home-discord-bot@1001598293:*`
 - `DOCKERHUB_OIDC_CONNECTIONID` をリポジトリのActions Variables(Settings → Secrets and variables → Actions → Variables)に登録する。
 - Docker Hub上に `ssmcnetwork/home-discord-bot` リポジトリが無ければ作成しておく。
 - Docker Hardened Images (DHI) はTeamライセンスの無料枠を利用する前提(エンタープライズ限定のミラーレジストリ機能は使わない)。ベースイメージは `dhi.io/python:3-debian-dev`(ビルド/開発用、pip・poetryが使える)と `dhi.io/python:3`(本番ランタイム用、最小構成)の2種類を使い分けている。
 
-**DHIイメージの更新検知(digest固定 + Renovate)**: `dhi.io/python:3-debian-dev`・`dhi.io/python:3` はいずれも浮動タグ(タグ名は変わらないまま中身だけDocker側で更新される)なので、Dockerfileの `ARG PYTHON_DEV_IMAGE`/`PYTHON_PRD_IMAGE` は `@sha256:...` でdigest固定している。固定するだけだと更新に気づけないため、`renovate.json`(`enabledManagers: ["dockerfile"]` のみ有効化、他のマネージャー(poetry/GitHub Actionsなど)は今回のスコープ外として明示的に無効化している)でRenovateにDockerfileを監視させ、DHI側で新しいビルドが出るたびに「digestを更新するPR」が自動生成されるようにしている。このPRは `release/*` 向けなので `test.yaml` が自動でDocker Scoutの再スキャンも走らせ、そのPR上で脆弱性が直ったかどうかも一緒に確認できる。dhi.ioのdigest確認にはRenovate側にもDocker Hubの静的な資格情報が必要(OIDCはRenovateからは使えないため)で、`renovate.json` の `hostRules` は `{{ secrets.DHI_IO_DOCKERHUB_PAT }}` というRenovateのシークレット参照になっている。**運用にはユーザー側で以下の設定が必要**(このセッションからは操作不可):
+**DHIイメージの更新検知(digest固定 + Renovate)**: `dhi.io/python:3-debian-dev`・`dhi.io/python:3` はいずれも浮動タグ(タグ名は変わらないまま中身だけDocker側で更新される)なので、Dockerfileの `ARG PYTHON_DEV_IMAGE`/`PYTHON_PRD_IMAGE` は `@sha256:...` でdigest固定している。固定するだけだと更新に気づけないため、`renovate.json`(`enabledManagers: ["dockerfile"]` のみ有効化、他のマネージャー(poetry/GitHub Actionsなど)は今回のスコープ外として明示的に無効化している)でRenovateにDockerfileを監視させ、DHI側で新しいビルドが出るたびに「digestを更新するPR」が自動生成されるようにしている。**GitHub Flowへ移行したことで、Renovateは特別な設定(`baseBranches`等)なしにデフォルトブランチ(`main`)へ普通にPRを送るだけでよくなった** — 以前の3層ブランチモデルでは「今どのreleaseブランチが有効か」をRenovateが判断できず、有効なreleaseブランチが無ければ新規作成する、といった自前ロジックが必要になりそうだったが、GitHub Flowではその問題自体が発生しない。RenovateのPRも`main`へのPRである以上 `test.yaml` が通常通りDocker Scoutの再スキャンも走らせるので、そのPR上で脆弱性が直ったかどうかも一緒に確認できる。
+
+`dhi.io` のdigest確認にはRenovate側にもDocker Hubの静的な資格情報が必要(OIDCはRenovateからは使えないため)で、`renovate.json` の `hostRules` は `{{ secrets.DHI_IO_DOCKERHUB_PAT }}` というRenovateのシークレット参照になっている。**さらに、`hostRules` だけでは不十分で `registryAliases: { "dhi.io": "dhi.io" }` も必須**(重要・ハマりどころ): これが無いと、Renovateは `dhi.io/python` を「Docker Hubのユーザー `dhi.io` が持つ `python` イメージ」と誤解釈し、`dhi.io` ではなく素の `index.docker.io` へ問い合わせてしまい `Failed to look up docker package dhi.io/python: no-result` で失敗する(実行ログの `HTTP statistics` に `dhi.io` 宛のリクエストが1件も記録されないことで判明した)。`packageRules` の `registryUrls` で個別パッケージ向けに問い合わせ先を上書きする方法は効果がなかった(参考: [renovatebot/renovate#40077](https://github.com/renovatebot/renovate/discussions/40077))。**運用にはユーザー側で以下の設定が必要**(このセッションからは操作不可):
   - Mend Renovate GitHub Appをこのリポジトリにインストールする(GitHub Marketplaceから)。
-  - MendのダッシュボードでこのリポジトリにRepository Secret `DHI_IO_DOCKERHUB_PAT`(Docker Hubの読み取り専用PAT)を登録する。
+  - MendのダッシュボードでこのリポジトリにRepository Secret `DHI_IO_DOCKERHUB_PAT`(Docker Hubの読み取り専用PAT、Organization Access Token推奨)を登録する。
+  - リポジトリ設定(Settings → Dependencies)の **Silent mode をOFFにする** — ONのままだとRenovateは更新内容を計算するだけでDependency Dashboard IssueもPRも一切作成しない(このハマりどころも実際に踏んで確認済み)。
   - 現在Dockerfileに埋め込まれているdigestは、`docker buildx imagetools inspect <image>` をCI経由(dhi.ioへログイン済みの環境)で実行して取得したもの。手元で最新化する場合も同じコマンドで確認できる。
 
 ## アーキテクチャ
