@@ -17,7 +17,7 @@ YouTubeダウンロードタスクの進捗をRedis経由で監視し、状態�
 - Lint: `ruff check .`(コンテナ内、`/usr/src/app` から実行)
 - フォーマット: `ruff format .`
 - 型チェック: `mypy .`
-- テスト: `pytest`(`tool.pytest.ini_options` で `testpaths = ["tests"]` を設定済みだが、`tests/` ディレクトリ自体はまだ無い — CI(`test.yaml`)も `[ -d tests ]` のガードで未整備を許容している)
+- テスト: `pytest`(`tool.pytest.ini_options` で `testpaths = ["tests"]`、`app/tests/` 配下にユニットテストを配置している。CI(`test.yaml`)の `[ -d tests ]` ガードは、将来的にテストが一時的に無い状態に戻ってもCIを壊さないための保険として維持)
 - 依存関係インストール(コンテナ内): `poetry install`(開発用)または `poetry install --without dev`(本番用)
 - 本番ビルド: `docker build --target prd .` / `docker compose -f compose.prd.yml up`
 
