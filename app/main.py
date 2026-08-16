@@ -148,4 +148,5 @@ async def on_ready() -> None:
     client.loop.create_task(monitor_redis())
 
 
-client.run(settings.discord_token)
+if __name__ == "__main__":
+    client.run(settings.discord_token)
