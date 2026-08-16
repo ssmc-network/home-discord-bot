@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "バージョン(vX.Y.Z)。タグではなくブランチ/コミットからworkflow_dispatchする場合に指定する(未指定時はGITHUB_REFから自動判定)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -20,7 +26,12 @@ jobs:
       - name: Extract release version
         id: extract_version
         run: |
-          RELEASE_VERSION="${GITHUB_REF#refs/tags/v}"
+          if [ -n "${{ inputs.version }}" ]; then
+            RELEASE_VERSION="${{ inputs.version }}"
+            RELEASE_VERSION="${RELEASE_VERSION#v}"
+          else
+            RELEASE_VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
           echo "RELEASE_VERSION=$RELEASE_VERSION" >> $GITHUB_ENV
 
       - name: Set up Docker Buildx
