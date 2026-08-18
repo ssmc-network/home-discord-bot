@@ -5,7 +5,7 @@
 # `docker login dhi.io`(Docker Hubの認証情報)が必要。
 # タグは浮動(latestの中身が無断で変わる)ため、digestで固定しRenovateに
 # 更新PRを出させている(更新検知の仕組みはCLAUDE.md参照)。
-ARG PYTHON_DEV_IMAGE=dhi.io/python:3-debian-dev@sha256:02173cae8b920c98ff9fab81eb1aefcadd229f158110553c6ed758dc935589dd
+ARG PYTHON_DEV_IMAGE=dhi.io/python:3-debian-dev@sha256:35263a6c329e601a836a011a27792d3ae84f387b9055b40035b0649d5ce68e3c
 ARG PYTHON_PRD_IMAGE=dhi.io/python:3@sha256:0536ccad57c9be08128bd2a6f0982570086ec943a88033f4f53f7adffe407903
 ARG POETRY_VERSION=2.4.1
 
