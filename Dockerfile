@@ -6,7 +6,7 @@
 # タグは浮動(latestの中身が無断で変わる)ため、digestで固定しRenovateに
 # 更新PRを出させている(更新検知の仕組みはCLAUDE.md参照)。
 ARG PYTHON_DEV_IMAGE=dhi.io/python:3-debian-dev@sha256:02173cae8b920c98ff9fab81eb1aefcadd229f158110553c6ed758dc935589dd
-ARG PYTHON_PRD_IMAGE=dhi.io/python:3@sha256:0536ccad57c9be08128bd2a6f0982570086ec943a88033f4f53f7adffe407903
+ARG PYTHON_PRD_IMAGE=dhi.io/python:3@sha256:9525354fea02f28b9f51285b8e935807f2a2f98cfa684c5ea0ab1e7addaadf54
 ARG POETRY_VERSION=2.4.1
 
 
